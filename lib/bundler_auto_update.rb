@@ -95,7 +95,7 @@ module Bundler
       #
       # @return true on success, false on failure.
       def update_gemfile
-        if gemfile.update_gem(gem) 
+        if gemfile.update_gem(gem)
           Logger.log_indent "Gemfile updated successfully."
           true
         else
@@ -208,7 +208,7 @@ module Bundler
       #
       # @return true on success, false on failure
       def run_bundle_update(gem)
-        CommandRunner.system("bundle install") or CommandRunner.system("bundle update #{gem.name}")
+        CommandRunner.system("bundle install --quiet") or CommandRunner.system("bundle update #{gem.name} --quiet")
       end
     end # class Gemfile
 
@@ -240,12 +240,12 @@ module Bundler
         @name, @version, @options = name, version, options
 
         # TODO: enhance support of > and ~> in versions
-        @major, @minor, @patch = version[/\d+\.\d+(\.\d+)?/].split('.') if version
+        @major, @minor, @patch = version[/\d+\.?\d?(\.\d+)?/].split('.') if version
       end
 
       # Return last version scoped at :version_type:.
       #
-      # Example: last_version(:patch), returns the last patch version 
+      # Example: last_version(:patch), returns the last patch version
       # for the current major/minor version
       #
       # @return [String] last version. Ex: '1.2.3'
