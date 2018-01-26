@@ -48,32 +48,30 @@ module Bundler
         @gem, @gemfile, @test_command = gem, gemfile, test_command
       end
 
-      # Attempt to update to patch, then to minor then to major versions.
+      # Attempt to update to patch, then to minor then to major versions for gems with a version.
+      # Attempt to perform the newest update for all other gems.
       def auto_update
-        if updatable?
-          Logger.log "Updating #{gem.name}"
-          update(:patch) and update(:minor) and update(:major)
+        Logger.log "Updating #{gem.name}"
+        if gem.version
+          update_version(:patch) and update_version(:minor) and update_version(:major)
         else
-          Logger.log "#{gem.name} is not auto-updatable, passing it."
+          update()
         end
       end
 
-      # Update current gem to latest :version_type:, run test suite and commit new Gemfile
-      # if successful.
+      # Update current gem to latest :version_type:, run test suite and commit new Gemfile if successful.
       #
       # @param version_type :patch or :minor or :major
       # @return [Boolean] true on success or when already at latest version
-      def update(version_type)
+      def update_version(version_type)
         new_version = gem.last_version(version_type)
 
         if new_version == gem.version
           Logger.log_indent "Current gem already at latest #{version_type} version. Passing this update."
-
           return true
         end
 
         Logger.log_indent "Updating to #{version_type} version #{new_version}"
-
         gem.version = new_version
 
         if update_gemfile and run_test_suite and commit_new_version
@@ -84,9 +82,14 @@ module Bundler
         end
       end
 
-      # @return true when the gem has a fixed version.
-      def updatable?
-        !!(gem.version =~ /^~?>? ?\d+\.\d+(\.\d+)?$/)
+      def update
+        Logger.log_indent "Updating to newest version"
+        if update_gemfile and run_test_suite and commit_new_version
+          true
+        else
+          revert_to_previous_version
+          false
+        end
       end
 
       private
@@ -118,8 +121,11 @@ module Bundler
 
       def commit_new_version
         Logger.log_indent "Committing changes"
-
-        CommandRunner.system "git commit #{files_to_commit} -m 'Auto update #{gem.name} to version #{gem.version}'"
+        commit_message = "Auto update #{gem.name}"
+        if gem.version
+          commit_message = "Auto update #{gem.name} to version #{gem.version}"
+        end
+        CommandRunner.system "git commit #{files_to_commit} -m '#{commit_message}'"
       end
 
       def files_to_commit
@@ -141,19 +147,18 @@ module Bundler
 
       # Regex that matches a gem definition line.
       #
-      # @return [RegEx] matching [_, name, _, version, _, options]
+      # @return [RegEx] matching [_, name, _, version_info, _, options]
       def gem_line_regex(gem_name = '([\w-]+)')
-        /^\s*gem\s*['"]#{gem_name}['"]\s*(,\s*['"](.+)['"])?\s*(,\s*(.*))?\n?$/
+        /^\s*gem\s*['"]#{gem_name}['"]\s*(,\s*['"](.+)['"])*\s*(,\s*(.*))?\n?$/
       end
 
-      # @note This funky code parser could be replaced by a funky dsl re-implementation
       def gems
         gems = []
 
         content.dup.each_line do |l|
           if match = l.match(gem_line_regex)
-            _, name, _, version, _, options = match.to_a
-            gems << Dependency.new(name, version, options)
+            _, name, _, _, options, = match.to_a
+            gems << Dependency.new(name, options)
           end
         end
 
@@ -162,7 +167,8 @@ module Bundler
 
       # Update Gemfile and run 'bundle update'
       def update_gem(gem)
-        update_content(gem) and write and run_bundle_update(gem)
+        update_content(gem) and write if gem.version
+        CommandRunner.system("bundle update #{gem.name} --quiet")
       end
 
       # @return [String] Gemfile content
@@ -181,9 +187,9 @@ module Bundler
         new_content = ""
         content.each_line do |l|
           if l =~ gem_line_regex(gem.name)
-            l.gsub!(/\d+\.\d+\.\d+/, gem.version)
+            l = "gem '#{gem.name}', '#{gem.version}'#{gem.options}"
+            puts l
           end
-
           new_content += l
         end
 
@@ -200,15 +206,6 @@ module Bundler
         File.open('Gemfile', 'w') do |f|
           f.write(content)
         end
-      end
-
-      # Attempt to run 'bundle install' and fall back on running 'bundle update :gem'.
-      #
-      # @param [Dependency] gem The gem to update
-      #
-      # @return true on success, false on failure
-      def run_bundle_update(gem)
-        CommandRunner.system("bundle install --quiet") or CommandRunner.system("bundle update #{gem.name} --quiet")
       end
     end # class Gemfile
 
@@ -236,11 +233,11 @@ module Bundler
       attr_reader :name, :options, :major, :minor, :patch
       attr_accessor :version
 
-      def initialize(name, version = nil, options = nil)
-        @name, @version, @options = name, version, options
-
-        # TODO: enhance support of > and ~> in versions
-        @major, @minor, @patch = version[/\d+\.?\d?(\.\d+)?/].split('.') if version
+      def initialize(name, options)
+        @name = name
+        @options = options
+        @version = GemVersionReader.gem_version(name)
+        @major, @minor, @patch = @version.split('.') if @version
       end
 
       # Return last version scoped at :version_type:.
@@ -267,6 +264,7 @@ module Bundler
       #
       # @return [Array] of [String].
       def available_versions
+        return unless @version
         the_gem_line = gem_remote_list_output.scan(/^#{name}\s.*$/).first
         the_gem_line.scan /\d+\.\d+\.\d+/
       end
@@ -277,6 +275,21 @@ module Bundler
         @gem_remote_list_output ||= CommandRunner.run "gem list #{name} -r -a"
       end
     end # class Dependency
+
+    class GemVersionReader
+
+      def self.gem_version(gem_name)
+        regex = /.+\s#{gem_name}\s+\(([\d\.]+)\)/
+        match = bundler_raw_gem_versions.match(regex)
+        match.to_a[1]
+      end
+
+      def self.bundler_raw_gem_versions
+        @@bundler_raw_gem_versions ||= CommandRunner.run "bundle show"
+      end
+
+      private_class_method :bundler_raw_gem_versions
+    end
 
     class CommandRunner
 
