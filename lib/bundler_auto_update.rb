@@ -22,15 +22,21 @@ module Bundler
     class Updater
       DEFAULT_TEST_COMMAND = "rake"
 
-      attr_reader :test_command
+      attr_reader :test_command, :do_not_update
 
       def initialize(test_command = nil)
         @test_command = test_command || DEFAULT_TEST_COMMAND
+        @do_not_update = parse_do_not_update || {}
       end
 
       def auto_update!
         gemfile.gems.each do |gem|
-          GemUpdater.new(gem, gemfile, test_command).auto_update
+          Logger.log ""
+          if do_not_update[gem.name]
+            Logger.log "Skipping #{gem.name}: gem appears in .donotupdate"
+          else
+            GemUpdater.new(gem, gemfile, test_command).auto_update
+          end
         end
       end
 
@@ -38,6 +44,16 @@ module Bundler
 
       def gemfile
         @gemfile ||= Gemfile.new
+      end
+
+      def parse_do_not_update
+        return unless File.exist?(".donotupdate")
+        do_not_update = {}
+        File.read(".donotupdate").each_line do |l|
+          l.gsub!(/\s+/, "")
+          do_not_update[l] = true
+        end
+        do_not_update
       end
     end
 

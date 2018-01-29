@@ -2,8 +2,7 @@
 
 `bundler-auto-update` is a ruby gem that updates the gems listed in your Gemfile to the latest version that does not break your system.
 
-`bundler-auto-updates` iterates over the gems listed in your Gemfile. It updates them to their latest patch, then minor, then major version. It runs your test suite and it commit changes if successfull or revert changes otherwise.
-
+`bundler-auto-updates` iterates over the gems listed in your Gemfile. It updates them to their latest patch, then minor, then major version. It runs your test suite and then commit changes if successful or revert changes otherwise.  Note that bundler-auto-update will attempt to 'unlock' gems in order to update them to newer versions.
 
 ## Install
 
@@ -16,6 +15,12 @@
 The default test suite command is `rake`.  You can specify a custom one with the `-c` option
 
     bundle-auto-update -c rake test:all
+
+You may specify gems which bundler-auto-update should not attempt to update in `.donotupdate`.
+
+    rails
+    pg
+    nokogiri
 
 ## Sample output
 
@@ -60,4 +65,3 @@ MIT
 ## Copyright
 
 Copyright (c) 2011 VersaPay, Philippe Creux.
-
