@@ -167,8 +167,12 @@ module Bundler
 
       # Update Gemfile and run 'bundle update'
       def update_gem(gem)
+        old_path = GemVersionReader.get_path(gem)
         update_content(gem) and write if gem.version
-        CommandRunner.system("bundle update #{gem.name} --quiet")
+        if CommandRunner.system("bundle update #{gem.name} --quiet")
+          new_path = GemVersionReader.get_path(gem)
+          new_path != old_path
+        end
       end
 
       # @return [String] Gemfile content
@@ -236,7 +240,7 @@ module Bundler
       def initialize(name, options)
         @name = name
         @options = options
-        @version = GemVersionReader.gem_version(name)
+        @version = GemVersionReader.parse_gem_version(self)
         @major, @minor, @patch = @version.split('.') if @version
       end
 
@@ -278,17 +282,21 @@ module Bundler
 
     class GemVersionReader
 
-      def self.gem_version(gem_name)
-        regex = /.+\s#{gem_name}\s+\(([\d\.]+)\)/
-        match = bundler_raw_gem_versions.match(regex)
+      def self.parse_gem_version(gem)
+        regex = /.+\s#{gem.name}\s+\(([\d\.]+)\)/
+        match = old_gem_versions.match(regex)
         match.to_a[1]
       end
 
-      def self.bundler_raw_gem_versions
-        @@bundler_raw_gem_versions ||= CommandRunner.run "bundle show"
+      def self.get_path(gem)
+        CommandRunner.run "bundle show #{gem.name}"
       end
 
-      private_class_method :bundler_raw_gem_versions
+      def self.old_gem_versions
+        @@old_gem_versions ||= CommandRunner.run "bundle show"
+      end
+
+      private_class_method :old_gem_versions
     end
 
     class CommandRunner
